@@ -577,7 +577,7 @@ h2 {
     border-radius: 4px;
     padding: 4px;
     margin-top: 4px;
-    max-width: 160px;
+    max-width: 128px;   /* 160px - 20%: the User Query select */
 }
 
 .contact-interval-text {
@@ -924,4 +924,18 @@ h2 {
 
 .dark-tiles {
   filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
+/* no horizontal scrollbars in side panels: long content wraps or clips */
+#leftbar,
+#rightbar {
+    overflow-x: hidden;
+}
+
+.log-entry-msg,
+.log-entry-info,
+.contact-inline-text,
+.contact-row-top,
+.contact-row-bottom {
+    overflow-wrap: anywhere;
 }

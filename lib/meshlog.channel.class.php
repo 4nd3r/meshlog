@@ -6,6 +6,8 @@ class MeshLogChannel extends MeshLogEntity {
     public $hash = null;
     public $name = null;
     public $enabled = null;
+    public $visible = null;
+    public $order = null;
     public $created_at = null;
 
     public static function fromJson($data, $meshlog) {
@@ -14,6 +16,8 @@ class MeshLogChannel extends MeshLogEntity {
         $m->hash = $data['channel']['hash'] ?? '11';
         $m->name = $data['channel']['name'] ?? 'unknown';
         $m->enabled = true; // default
+        $m->visible = true; // default
+        $m->order = 0; // default
 
         return $m;
     }
@@ -27,6 +31,8 @@ class MeshLogChannel extends MeshLogEntity {
         $m->hash = $data['hash'];
         $m->name = $data['name'];
         $m->enabled = $data['enabled'];
+        $m->visible = $data['visible'];
+        $m->order = $data['order'];
         $m->created_at = $data['created_at'];
 
         return $m;
@@ -44,6 +50,8 @@ class MeshLogChannel extends MeshLogEntity {
             'id' => $this->getId(),
             'hash' => $this->hash,
             'name' => $this->name,
+            'visible' => (int)$this->visible,
+            'order' => (int)$this->order,
             'created_at' => $this->created_at
         );
     }
@@ -53,6 +61,8 @@ class MeshLogChannel extends MeshLogEntity {
             "hash" => array($this->hash, PDO::PARAM_STR),
             "name" => array($this->name, PDO::PARAM_STR),
             "enabled" => array($this->enabled, PDO::PARAM_INT),
+            "visible" => array($this->visible, PDO::PARAM_INT),
+            "order" => array($this->order, PDO::PARAM_INT),
         );
     }
 }

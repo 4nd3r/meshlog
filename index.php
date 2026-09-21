@@ -322,7 +322,7 @@ window.addEventListener("pointerup", function() {
 
 resize();
 
-var map = L.map('map').setView([56.96894, 24.14520], 10);
+var map = L.map('map').setView([59, 25], 7);
 let layerOsm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     crossOrigin: true,

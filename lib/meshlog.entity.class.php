@@ -93,13 +93,13 @@ class MeshLogEntity {
         $sql = "";
         $meshlog->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         if ($this->isNew()) {
-            $colsStr = implode(',', $cols);
+            $colsStr = implode(',', array_map(function ($c) { return "`$c`"; }, $cols));
             $paramsStr = ':' . implode(',:', $cols);
             $sql = "INSERT INTO $tableStr ($colsStr) VALUES ($paramsStr)";
         } else {
             $params = array();
             foreach ($cols as $c) {
-                $params[] = "$c = :$c";
+                $params[] = "`$c` = :$c";
             }
             $paramsStr = implode(', ', $params);
             $sql = " UPDATE $tableStr SET $paramsStr WHERE id = :id";

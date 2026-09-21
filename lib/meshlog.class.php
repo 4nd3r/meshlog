@@ -818,7 +818,10 @@ class MeshLog {
             if ($after_ms > 0) {
                 $afterParam = ':after_ms' . $query['suffix'];
                 $filters[] = "recent.activity_at > FROM_UNIXTIME($afterParam)";
-                $binds[] = array($afterParam, floor($after_ms / 1000), PDO::PARAM_INT);
+                // 1s overlap: second-resolution timestamps + strict '>' would
+                // permanently drop events sharing the cursor's second. The
+                // frontend dedupes by id, so refetching is harmless.
+                $binds[] = array($afterParam, max(0, floor($after_ms / 1000) - 1), PDO::PARAM_INT);
             }
             if ($before_ms > 0) {
                 $beforeParam = ':before_ms' . $query['suffix'];
@@ -979,14 +982,20 @@ class MeshLog {
         $limit = (int) ($params['count'] ?? DEFAULT_COUNT);
         $includeTelemetry = (int) ($params['telemetry'] ?? ($params['include_telemetry'] ?? 0)) !== 0;
         $extra = "WHERE last_heard_at >= NOW() - INTERVAL $maxage SECOND ";
-        $binds = array();
-        $where = $this->getTimeFiltersSql($params);
-        if (!empty($where[0])) {
-            $extra .= " AND " . $where[0];
-            foreach ($where[1] as $w) {
-                $binds[] = $w;
-            }
+        // Filter on the contact's *activity* (last_heard_at), not just
+        // created_at: created_at never changes, so with a strict created_at
+        // filter existing contacts would never be re-fetched by the frontend
+        // poller and advert updates (positions, renames) would only appear
+        // after a full page reload.
+        $after_ms = (int) ($params['after_ms'] ?? 0);
+        $before_ms = (int) ($params['before_ms'] ?? 0);
+        if ($after_ms > 0) {
+            $extra .= " AND GREATEST(t.last_heard_at, t.created_at) > FROM_UNIXTIME(" . (floor($after_ms / 1000) - 1) . ") ";
         }
+        if ($before_ms > 0) {
+            $extra .= " AND GREATEST(t.last_heard_at, t.created_at) < FROM_UNIXTIME(" . floor($before_ms / 1000) . ") ";
+        }
+        $binds = array();
 
         $sql = "
             SELECT

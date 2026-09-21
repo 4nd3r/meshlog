@@ -177,7 +177,7 @@ class MeshLogChannel extends MeshLogObject {
     }
 
     isEnabled() {
-        return Settings.getBool(`channels.${this.data.id}.enabled`, true);
+        return Settings.getBool(`channels.${this.data.id}.enabled`, !!this.data.visible);
     }
 
     createDom(recreate = false) {
@@ -241,6 +241,24 @@ class MeshLogContact extends MeshLogObject {
     static onclick(e) {
         this.expanded = !this.expanded;
         this.updateDom();
+    }
+
+    merge(data) {
+        super.merge(data);
+        // The server attaches the contact's latest advertisement on every
+        // fetch; without this the marker and "last heard" would stay frozen
+        // at whatever advert the contact had when it was first loaded.
+        if (data.advertisement) {
+            const adv = new MeshLogAdvertisement(this._meshlog, data.advertisement);
+            this.adv = adv;
+            this.last = adv;
+            if (this.marker && (adv.data.lat || adv.data.lon)) {
+                this.marker.setLatLng([adv.data.lat, adv.data.lon]);
+            }
+        }
+        if (data.telemetry) {
+            this.telemetry = data.telemetry;
+        }
     }
 
     static onmouseover(e) {
@@ -1606,7 +1624,7 @@ class MeshLogAdvertisement extends MeshLogReportedObject {
     getName() { return {text: this.data.name, classList: []}; }
     getText() { return {text: "", classList: []}; }
     getPathTag() { return "ADV"; }
-    isVisible() { return Settings.getBool('messageTypes.advertisements', true) && this.hasVisibleReports() && this.isSenderVisible(); }
+    isVisible() { return Settings.getBool('messageTypes.advertisements', false) && this.hasVisibleReports() && this.isSenderVisible(); }
 }
 
 class MeshLogChannelMessage extends MeshLogReportedObject {
@@ -2773,18 +2791,6 @@ class MeshLog {
         const self = this;
         this.dom_settings_types.appendChild(
             this.__createCb(
-                "Advertisements",
-                "assets/img/beacon.png",
-                'messageTypes.advertisements',
-                true,
-                (e) => {
-                    self.__onTypesChanged();
-                }
-            )
-        );
-
-        this.dom_settings_types.appendChild(
-            this.__createCb(
                 "Channel Messages",
                 "assets/img/message.png",
                 'messageTypes.channel',
@@ -2795,11 +2801,11 @@ class MeshLog {
             )
         );
 
-        this.dom_settings_types.append(
+        this.dom_settings_types.appendChild(
             this.__createCb(
-                "Direct Messages",
-                "assets/img/message.png",
-                'messageTypes.direct',
+                "Advertisements",
+                "assets/img/beacon.png",
+                'messageTypes.advertisements',
                 false,
                 (e) => {
                     self.__onTypesChanged();
@@ -3006,7 +3012,7 @@ class MeshLog {
     getEnabledMessageTypes() {
         const enabled = [];
 
-        if (Settings.getBool('messageTypes.advertisements', true)) {
+        if (Settings.getBool('messageTypes.advertisements', false)) {
             enabled.push('advertisements');
         }
         if (Settings.getBool('messageTypes.channel', true)) {
@@ -3464,9 +3470,11 @@ class MeshLog {
     }
 
     onLoadChannels(channels = Object.values(this.channels)) {
-        channels.forEach(channel => {
-            this.addChannel(channel);
-        });
+        channels
+            .sort((a, b) => (a.data.order ?? 0) - (b.data.order ?? 0))
+            .forEach(channel => {
+                this.addChannel(channel);
+            });
     }
 
     addChannel(ch) {
