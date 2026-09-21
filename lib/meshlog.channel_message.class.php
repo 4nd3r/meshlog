@@ -10,6 +10,7 @@ class MeshLogChannelMessage extends MeshLogEntity {
     public $name = null;
     public $message = null;
     public $hash_size = null;
+    public $scope = null;
 
     public $sent_at = null;
     public $created_at = null;
@@ -45,6 +46,7 @@ class MeshLogChannelMessage extends MeshLogEntity {
         $m->name = $data['name'];
         $m->message = $data['message'];
         $m->hash_size = $data['hash_size'];
+        $m->scope = $data['scope'] ?? '';
 
         $m->sent_at = $data['sent_at'];
         $m->created_at = $data['created_at'];
@@ -96,6 +98,7 @@ class MeshLogChannelMessage extends MeshLogEntity {
             "name" => array($this->name, PDO::PARAM_STR),
             "message" => array($this->message, PDO::PARAM_STR),
             "hash_size" => array($this->hash_size, PDO::PARAM_INT),
+            "scope" => array($this->scope, PDO::PARAM_STR),
             "sent_at" => array($this->sent_at, PDO::PARAM_STR),
         );
     }
@@ -108,6 +111,7 @@ class MeshLogChannelMessage extends MeshLogEntity {
                 $prefix.name,
                 $prefix.message,
                 $prefix.hash_size,
+                $prefix.scope,
                 $prefix.sent_at,
                 $prefix.created_at";
     }

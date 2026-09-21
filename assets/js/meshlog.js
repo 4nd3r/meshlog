@@ -1498,8 +1498,6 @@ class MeshLogReportedObject extends MeshLogObject {
         spTag.classList.add(...['sp', 'tag']);
         spTag.classList.add(...tag.classList);
         spTag.innerText = tag.text;
-
-        // Check message times
         let sentAt = new Date(this.data.sent_at).getTime();
         let createdAt = new Date(this.data.created_at).getTime();
         let clockWarning = getClockOutOfSyncWarning(this.data.sent_at, sentAt, createdAt);
@@ -1528,6 +1526,12 @@ class MeshLogReportedObject extends MeshLogObject {
             // message
             divLine1.append(spDate);
             divLine1.append(spTag);
+            if (this.data.scope) {
+                let spScope = document.createElement("span");
+                spScope.classList.add(...['sp', 'tag']);
+                spScope.innerText = `| ${this.data.scope}`;
+                divLine1.append(spScope);
+            }
             divLine2.append(spName);
             divLine2.append(spText);
         } else {

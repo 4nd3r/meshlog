@@ -27,7 +27,7 @@ CREATE TABLE `advertisement_reports` (
   KEY `advertisement_id_reporter_id` (`advertisement_id`,`reporter_id`),
   CONSTRAINT `advertisement_reports_ibfk_1` FOREIGN KEY (`advertisement_id`) REFERENCES `advertisements` (`id`),
   CONSTRAINT `advertisement_reports_ibfk_2` FOREIGN KEY (`reporter_id`) REFERENCES `reporters` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=21416 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=21473 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `advertisements`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -48,7 +48,7 @@ CREATE TABLE `advertisements` (
   KEY `contact_id` (`contact_id`),
   KEY `contact_id_id` (`contact_id`,`id`),
   CONSTRAINT `advertisements_ibfk_1` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2363 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2370 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `channel_message_reports`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -66,7 +66,7 @@ CREATE TABLE `channel_message_reports` (
   KEY `reporter_id` (`reporter_id`),
   CONSTRAINT `channel_message_reports_ibfk_1` FOREIGN KEY (`channel_message_id`) REFERENCES `channel_messages` (`id`),
   CONSTRAINT `channel_message_reports_ibfk_2` FOREIGN KEY (`reporter_id`) REFERENCES `reporters` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=11467 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11552 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `channel_messages`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -79,6 +79,7 @@ CREATE TABLE `channel_messages` (
   `name` varchar(128) NOT NULL,
   `message` varchar(320) NOT NULL,
   `hash_size` tinyint(4) NOT NULL DEFAULT 1,
+  `scope` varchar(16) NOT NULL DEFAULT '',
   `sent_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
@@ -86,7 +87,7 @@ CREATE TABLE `channel_messages` (
   KEY `channel_id` (`channel_id`),
   CONSTRAINT `channel_messages_ibfk_1` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `channel_messages_ibfk_3` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=1022 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1032 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `channels`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -119,7 +120,7 @@ CREATE TABLE `contacts` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `contact_pub_key` (`public_key`),
   KEY `last_heard_at_id` (`last_heard_at`,`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=543 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=544 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `direct_message_reports`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
