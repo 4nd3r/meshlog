@@ -1529,7 +1529,7 @@ class MeshLogReportedObject extends MeshLogObject {
             if (this.data.scope) {
                 let spScope = document.createElement("span");
                 spScope.classList.add(...['sp', 'tag']);
-                spScope.innerText = `| ${this.data.scope}`;
+                spScope.innerText = this.data.scope;
                 divLine1.append(spScope);
             }
             divLine2.append(spName);
@@ -1637,7 +1637,7 @@ class MeshLogChannelMessage extends MeshLogReportedObject {
         let chid = this.data.channel_id;
         let ch = this._meshlog.channels[chid] ?? false;
         let chname = ch ? ch.data.name : `Channel ${chid}`;
-        return {text: `→ ${chname}`, classList: []};
+        return {text: chname, classList: ['t-yellow']};
     }
 
     getId()   { return `c_${this.data.id}`; }
