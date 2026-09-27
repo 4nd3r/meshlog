@@ -39,11 +39,11 @@
     <div id="logs"></div>
 </div>
 <div id="midbar">
-    <div class="resize-bar" id="leftdrag"></div>
+    <div class="resize-bar" id="leftdrag" title="Click to hide panel • drag to resize"></div>
     <div id="map">
         <div id="warning" hidden></div>
     </div>
-    <div class="resize-bar" id="rightdrag"></div>
+    <div class="resize-bar" id="rightdrag" title="Click to hide panel • drag to resize"></div>
 </div>
 <div class="resize-bar resize-bar-horizontal" id="mobile-vdrag"></div>
 <div id="mobile-tabs" role="tablist" aria-label="Mobile sidebar tabs">
@@ -116,6 +116,9 @@ class Drags {
 
             if (!pair) return;
 
+            if (Math.abs(e.clientX - pair.downX) > 4) pair.moved = true;
+            if (pair.isCollapsed()) return; // click-only when the panel is hidden
+
             let split = ( e.x - pair.x0) / pair.width;
 
             if (split < 0.05) split = 0.05;
@@ -129,7 +132,19 @@ class Drags {
         });
 
         this.container.addEventListener("mouseup", function () {
+            let pair = undefined;
+            for (var i=0;i<self.pairs.length;i++) {
+                if (self.pairs[i].drag) {
+                    pair = self.pairs[i];
+                    break;
+                }
+            }
+            const clicked = pair && !pair.moved;
             self.cancelDrag();
+            if (clicked) {
+                // plain click on a drag bar toggles the panel next to it
+                setPanelCollapsed(pair.side, !getPanelCollapsed(pair.side));
+            }
         });
     }
 
@@ -147,8 +162,11 @@ class Drags {
 }
 
 class DragPair {
-    constructor(id, left, right) {
+    constructor(id, left, right, side) {
         this.drag = false;
+        this.moved = false;
+        this.downX = 0;
+        this.side = side;
         this.left = left;
         this.right = right;
         this.bar = document.getElementById(id);
@@ -156,11 +174,17 @@ class DragPair {
 
         const self = this;
 
-        this.bar.addEventListener("mousedown", function () {
+        this.bar.addEventListener("mousedown", function (e) {
             if (self.drags) self.drags.cancelDrag();
             self.calc();
+            self.downX = e.clientX;
+            self.moved = false;
             self.drag = true;
         });
+    }
+
+    isCollapsed() {
+        return this.side === "left" ? leftBarDom.hidden : rightBarDom.hidden;
     }
 
     calc() {
@@ -186,9 +210,19 @@ const MOBILE_MIN_MAP_HEIGHT = 180;
 const MOBILE_MIN_PANEL_HEIGHT = 60;
 const MOBILE_DRAG_HIT_HEIGHT = 28;
 
-const leftBar = new Bar("leftbar", 33);
-const middleBar = new Bar("midbar", 47);
-const rightBar = new Bar("rightbar", 20);
+const PANEL_DEFAULT_WIDTH = { left: 33, right: 20 };
+const MIN_PANEL_WIDTH = 5;
+
+// panel collapse state (persisted in localStorage); the nodes panel starts
+// hidden so the message log and the map split the screen evenly
+let leftCollapsed = Settings.getBool("layout.leftCollapsed", false);
+let rightCollapsed = Settings.getBool("layout.rightCollapsed", true);
+
+const leftStartWidth = leftCollapsed ? 0 : (rightCollapsed ? 50 : 33);
+const rightStartWidth = rightCollapsed ? 0 : 20;
+const leftBar = new Bar("leftbar", leftStartWidth);
+const middleBar = new Bar("midbar", 100 - leftStartWidth - rightStartWidth);
+const rightBar = new Bar("rightbar", rightStartWidth);
 const container = document.getElementById("container");
 const leftBarDom = document.getElementById("leftbar");
 const rightBarDom = document.getElementById("rightbar");
@@ -199,8 +233,69 @@ let mobileDrag = false;
 let mobileMapHeight = Number(Settings.get("mobile.mapHeight", MOBILE_DEFAULT_MAP_HEIGHT)) || MOBILE_DEFAULT_MAP_HEIGHT;
 let mobileActiveTab = Settings.get("mobile.activeTab", "logs") || "logs";
 
-const dragLeft = new DragPair("leftdrag", leftBar, middleBar);
-const dragRight = new DragPair("rightdrag", middleBar, rightBar);
+const dragLeft = new DragPair("leftdrag", leftBar, middleBar, "left");
+const dragRight = new DragPair("rightdrag", middleBar, rightBar, "right");
+
+function getPanelCollapsed(side) {
+    return side === "left" ? leftCollapsed : rightCollapsed;
+}
+
+function setDragDirection(drag, collapsed) {
+    drag.bar.classList.toggle("panel-collapsed", collapsed);
+    drag.bar.title = collapsed
+        ? "Click to show panel • drag to resize"
+        : "Click to hide panel • drag to resize";
+}
+
+function setPanelCollapsed(side, collapsed, persist = true) {
+    const bar = side === "left" ? leftBar : rightBar;
+    const dom = side === "left" ? leftBarDom : rightBarDom;
+    const drag = side === "left" ? dragLeft : dragRight;
+
+    if (collapsed) {
+        if (!dom.hidden) {
+            // remember the width the panel had, then hand it to the map
+            Settings.set(`layout.${side}Width`, bar.width);
+            middleBar.setWidth(middleBar.width + bar.width);
+            bar.setWidth(0);
+            dom.hidden = true;
+        }
+    } else {
+        if (dom.hidden) {
+            dom.hidden = false;
+            const defWidth = PANEL_DEFAULT_WIDTH[side];
+            let w = Number(Settings.get(`layout.${side}Width`, defWidth)) || defWidth;
+            w = Math.min(w, 100 - 2 * MIN_PANEL_WIDTH);
+            // take space from the map first, then from the opposite panel
+            const other = side === "left" ? rightBar : leftBar;
+            const fromMid = Math.min(Math.max(middleBar.width - MIN_PANEL_WIDTH, 0), w);
+            middleBar.setWidth(middleBar.width - fromMid);
+            const fromOther = Math.min(Math.max(other.width - MIN_PANEL_WIDTH, 0), w - fromMid);
+            if (fromOther > 0) other.setWidth(other.width - fromOther);
+            bar.setWidth(fromMid + fromOther);
+        }
+    }
+
+    if (side === "left") {
+        leftCollapsed = collapsed;
+    } else {
+        rightCollapsed = collapsed;
+    }
+    setDragDirection(drag, collapsed);
+    if (persist) {
+        Settings.set(`layout.${side}Collapsed`, collapsed);
+    }
+
+    requestAnimationFrame(() => {
+        if (typeof map !== "undefined") map.invalidateSize();
+    });
+}
+
+// apply persisted collapse state (widths were already sized for it above)
+leftBarDom.hidden = leftCollapsed;
+rightBarDom.hidden = rightCollapsed;
+setDragDirection(dragLeft, leftCollapsed);
+setDragDirection(dragRight, rightCollapsed);
 
 function getViewportHeight() {
     const heights = [
@@ -270,8 +365,8 @@ function resize() {
         middleBar.resetWidth();
         rightBar.resetWidth();
         mobileVDrag.hidden = true;
-        leftBarDom.hidden = false;
-        rightBarDom.hidden = false;
+        leftBarDom.hidden = getPanelCollapsed("left");
+        rightBarDom.hidden = getPanelCollapsed("right");
         container.style.removeProperty("--mobile-map-height");
     }
 

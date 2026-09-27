@@ -372,6 +372,10 @@ h2 {
     user-select: none;
 }
 
+.resize-bar.panel-collapsed {
+    cursor: pointer;
+}
+
 .resize-bar::before {
     content: "";
     position: absolute;
