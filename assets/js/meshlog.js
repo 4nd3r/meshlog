@@ -3916,7 +3916,16 @@ class MeshLog {
         clearTimeout(this.timer);
         const self = this;
         this.loadNew((data) => {
-            const count = Object.keys(this.new_messages).length;
+            // only count new msgs from enabled (active) channels
+            const count = Object.values(this.new_messages).filter((msgs) => {
+                return msgs.some((msg) => {
+                    if (msg instanceof MeshLogChannelMessage) {
+                        const ch = this.channels[msg.data.channel_id] ?? false;
+                        return !ch || ch.isEnabled();
+                    }
+                    return true;
+                });
+            }).length;
             if (count) {
                 if (Settings.getBool('notifications.enabled', false)) {
                     new Audio('assets/audio/notif.mp3').play();
