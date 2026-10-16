@@ -981,22 +981,59 @@ class MeshLog {
         $offset = (int) ($params['offset'] ?? 0);
         $limit = (int) ($params['count'] ?? DEFAULT_COUNT);
         $includeTelemetry = (int) ($params['telemetry'] ?? ($params['include_telemetry'] ?? 0)) !== 0;
-        $extra = "WHERE last_heard_at >= NOW() - INTERVAL $maxage SECOND ";
+        if ($limit > MAX_COUNT) $limit = MAX_COUNT;
+        if ($limit < 1) $limit = 1;
+
         // Filter on the contact's *activity* (last_heard_at), not just
         // created_at: created_at never changes, so with a strict created_at
         // filter existing contacts would never be re-fetched by the frontend
         // poller and advert updates (positions, renames) would only appear
         // after a full page reload.
+        $where = array("t.last_heard_at >= NOW() - INTERVAL " . (int) $maxage . " SECOND");
+        $binds = array();
+
         $after_ms = (int) ($params['after_ms'] ?? 0);
         $before_ms = (int) ($params['before_ms'] ?? 0);
         if ($after_ms > 0) {
-            $extra .= " AND GREATEST(t.last_heard_at, t.created_at) > FROM_UNIXTIME(" . (floor($after_ms / 1000) - 1) . ") ";
+            $where[] = "GREATEST(t.last_heard_at, t.created_at) > FROM_UNIXTIME(" . (floor($after_ms / 1000) - 1) . ")";
         }
         if ($before_ms > 0) {
-            $extra .= " AND GREATEST(t.last_heard_at, t.created_at) < FROM_UNIXTIME(" . floor($before_ms / 1000) . ") ";
+            $where[] = "GREATEST(t.last_heard_at, t.created_at) < FROM_UNIXTIME(" . floor($before_ms / 1000) . ")";
         }
-        $binds = array();
 
+        // Optional viewport bounding box: contacts carry their latest
+        // advertisement's denormalized position (see mqtt2meshlog), so the
+        // map only loads what is actually on screen.
+        $hasBbox = isset($params['min_lat'], $params['max_lat'], $params['min_lon'], $params['max_lon'])
+            && $params['min_lat'] !== '' && $params['max_lat'] !== ''
+            && $params['min_lon'] !== '' && $params['max_lon'] !== ''
+            && $params['min_lat'] !== null && $params['max_lat'] !== null
+            && $params['min_lon'] !== null && $params['max_lon'] !== null;
+        if ($hasBbox) {
+            $minLat = (float) $params['min_lat']; $maxLat = (float) $params['max_lat'];
+            $minLon = (float) $params['min_lon']; $maxLon = (float) $params['max_lon'];
+            if ($minLat > $maxLat) { $tmp = $minLat; $minLat = $maxLat; $maxLat = $tmp; }
+            if ($minLon > $maxLon) { $tmp = $minLon; $minLon = $maxLon; $maxLon = $tmp; }
+            $where[] = "t.lat BETWEEN :bbox_min_lat AND :bbox_max_lat "
+                     . "AND t.lon BETWEEN :bbox_min_lon AND :bbox_max_lon";
+            $binds[] = array(':bbox_min_lat', $minLat, PDO::PARAM_STR);
+            $binds[] = array(':bbox_max_lat', $maxLat, PDO::PARAM_STR);
+            $binds[] = array(':bbox_min_lon', $minLon, PDO::PARAM_STR);
+            $binds[] = array(':bbox_max_lon', $maxLon, PDO::PARAM_STR);
+        }
+
+        // Optional server-side search (name contains, or public-key/hash prefix).
+        $search = trim((string) ($params['search'] ?? ''));
+        if ($search !== '') {
+            $where[] = "(t.name LIKE :search_name OR t.public_key LIKE :search_key)";
+            $binds[] = array(':search_name', '%' . $search . '%', PDO::PARAM_STR);
+            $binds[] = array(':search_key', $search . '%', PDO::PARAM_STR);
+        }
+
+        $whereSql = 'WHERE ' . implode(' AND ', $where);
+
+        // Fetch one extra row to learn has_more without a second query.
+        $fetchLimit = $limit + 1;
         $sql = "
             SELECT
                 t.id,
@@ -1004,17 +1041,20 @@ class MeshLog {
                 t.name,
                 t.hash_size,
                 t.multibyte,
+                t.lat,
+                t.lon,
+                t.type,
                 t.last_heard_at,
-                t.created_at
+                t.created_at,
+                GREATEST(t.last_heard_at, t.created_at) AS activity_at
             FROM contacts t
-            $extra
+            $whereSql
             ORDER BY t.id DESC
             LIMIT :offset,:limit
         ";
-
         $stmt = $this->pdo->prepare($sql);
         $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':limit', $fetchLimit, PDO::PARAM_INT);
 
         foreach ($binds as $b) {
             $stmt->bindValue($b[0], $b[1], $b[2]);
@@ -1023,8 +1063,26 @@ class MeshLog {
         $stmt->execute();
 
         $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $hasMore = count($results) > $limit;
+        if ($hasMore) {
+            array_pop($results);
+        }
+
+        // Exact match count for the UI ("N repeaters in view"); computed
+        // only when a viewport/search filter is active so plain polls stay cheap.
+        $total = null;
+        if ($hasBbox || $search !== '') {
+            $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM contacts t $whereSql");
+            foreach ($binds as $b) {
+                $countStmt->bindValue($b[0], $b[1], $b[2]);
+            }
+            $countStmt->execute();
+            $total = (int) $countStmt->fetchColumn();
+        }
+
         if (!count($results)) {
-            return array("objects" => array());
+            return array("objects" => array(), "has_more" => false, "total" => $total);
         }
 
         $contactIds = array_map(function($row) {
@@ -1167,7 +1225,7 @@ class MeshLog {
         }
         unset($row);
 
-        return array("objects" => $results);
+        return array("objects" => $results, "has_more" => $hasMore, "total" => $total);
 
     }
 

@@ -935,6 +935,7 @@ class MeshLogContact extends MeshLogObject {
             tooltip = `<p class="tooltip-title">${this.adv.data.name} <span class="tooltip-hash">[${this.hash}]</span></p><p class="tooltip-detail">Last heard: ${this.last.data.created_at}</p>${advertIntervalLine}`;
         }
 
+        if (tooltip === this.marker_tooltip) return; // no change — skip rebind
         this.marker_tooltip = tooltip;
         this.marker.unbindTooltip();
 
@@ -1713,7 +1714,12 @@ class MeshLog {
         this.interval = 0;
         this.decor = true;
         this.default_api_count = 500;
-        this.default_contacts_count = 2000;
+        // Contacts are loaded per map viewport (see getViewBoundsParams):
+        // these are per-request / budget caps, not a global directory size.
+        this.default_contacts_count = 1000;
+        this.contact_view_count = 1000;
+        this.contact_view_padding = 0.25;    // fetch a margin around the view
+        this.contact_max_loaded = 2500;      // evict out-of-view contacts beyond this
         this.initial_messages_count = 250;
         this.older_messages_page_size = 200;
         this.loading_old = false;
@@ -1722,6 +1728,13 @@ class MeshLog {
         // epochs of newest loaded data
         this.latest = 0;
         this.latest_meta = 0;
+
+        // viewport-loading bookkeeping
+        this.contact_load_seq = 0;
+        this.contact_search_active = false;
+        this.view_loaded_bounds = null;
+        this._view_timer = null;
+        this._contact_filter_timer = null;
         this.message_type_loaded = {
             advertisements: false,
             channel_messages: false,
@@ -1795,6 +1808,9 @@ class MeshLog {
                 layer.checkVisibility();
             });
         });
+
+        // Reload contacts for the new area whenever the map settles.
+        this.map.on("moveend", () => this.onMapViewChanged());
     }
 
     handleMouseEvent(e) {
@@ -2575,7 +2591,7 @@ class MeshLog {
         return !hidden;
     }
 
-    sortContacts(fn=undefined, reverse=false) {
+    sortContacts(fn=undefined, reverse=false, updateMessages=true) {
         if (!fn) {
             fn = this.order.fn;
             reverse = this.order.reverse;
@@ -2616,7 +2632,7 @@ class MeshLog {
         });
         this.fadeMarkers();
         this.updateContactsFilterWarning();
-        this.updateMessagesDom();
+        if (updateMessages) this.updateMessagesDom();
     }
 
     __init_contact_order() {
@@ -2786,7 +2802,7 @@ class MeshLog {
         );
         this.dom_settings_contacts.appendChild(
             this.__createContactFilterInput((e) => {
-                self.sortContacts();
+                self.onContactFilterInput();
             })
         );
     }
@@ -2906,6 +2922,13 @@ class MeshLog {
         if (params.hasOwnProperty('reporters')) {
             query.reporters = params['reporters'];
         }
+
+        // viewport bounds + server-side search
+        if (params.hasOwnProperty('min_lat')) query.min_lat = params['min_lat'];
+        if (params.hasOwnProperty('max_lat')) query.max_lat = params['max_lat'];
+        if (params.hasOwnProperty('min_lon')) query.min_lon = params['min_lon'];
+        if (params.hasOwnProperty('max_lon')) query.max_lon = params['max_lon'];
+        if (params.hasOwnProperty('search'))  query.search  = params['search'];
 
         query.report_limit = this.getReportLimitSetting();
 
@@ -3070,6 +3093,14 @@ class MeshLog {
             count: params.contacts_count ?? this.default_contacts_count,
             telemetry: params.telemetry ?? params.include_telemetry ?? (this.shouldShowContactTelemetry() ? 1 : 0),
         };
+        // A search is global (no viewport bound) so matches outside the map
+        // stay reachable; otherwise scope contacts to the current view.
+        const search = String(params.search ?? '').trim();
+        if (search) {
+            contactParams.search = search;
+        } else {
+            Object.assign(contactParams, this.getViewBoundsParams());
+        }
 
         return Promise.all([
             this.__loadEndpoint('api/v1/reporters', reporterParams, this.reporters, MeshLogReporter, {
@@ -3215,6 +3246,11 @@ class MeshLog {
         this.links = {};
         this.latest = 0;
         this.latest_meta = 0;
+        this.contact_search_active = false;
+        this.contact_load_seq = 0;
+        this.view_loaded_bounds = null;
+        clearTimeout(this._view_timer);
+        clearTimeout(this._contact_filter_timer);
         this.message_type_loaded = {
             advertisements: false,
             channel_messages: false,
@@ -3444,6 +3480,8 @@ class MeshLog {
     }
 
     onLoadContacts(contacts = Object.values(this.contacts)) {
+        const loadSeq = ++this.contact_load_seq;
+        contacts.forEach(contact => { contact._load_seq = loadSeq; });
         let repHashes = {};
         Object.values(this.contacts).forEach(contact => {
             if (contact.isRepeater()) {
@@ -3470,6 +3508,9 @@ class MeshLog {
             this.addContact(contact);
             contact.addToMap(this.map);
         });
+        if (!this.contact_search_active && this.map) {
+            this.view_loaded_bounds = this.map.getBounds().pad(this.contact_view_padding ?? 0);
+        }
         this.updateContactsDom();
     }
 
@@ -3531,11 +3572,100 @@ class MeshLog {
     addContact(msg) {
         let dom = msg.createDom();
         msg.updateDom();
-        this.dom_contacts.appendChild(dom.container);
+        // don't move existing rows — sortContacts owns the ordering
+        if (dom.container && !dom.container.parentNode) {
+            this.dom_contacts.appendChild(dom.container);
+        }
     }
 
     updateContactsDom() {
+        // contacts changed (load/poll): keep messages untouched
+        this.sortContacts(undefined, false, false);
+    }
+
+    // --- viewport loading ------------------------------------------------
+    // Contacts are paged by the map's current bounding box so only what is
+    // on screen is fetched/rendered. Searching switches to a global,
+    // server-side query so nodes outside the view stay reachable.
+
+    getViewBoundsParams() {
+        if (!this.map) return {};
+        const b = this.map.getBounds().pad(this.contact_view_padding ?? 0);
+        return {
+            min_lat: b.getSouth(),
+            max_lat: b.getNorth(),
+            min_lon: b.getWest(),
+            max_lon: b.getEast(),
+        };
+    }
+
+    onMapViewChanged() {
+        clearTimeout(this._view_timer);
+        this._view_timer = setTimeout(() => this.loadViewport(), 350);
+    }
+
+    loadViewport(force = false) {
+        if (this.contact_search_active) return; // a search owns the list
+        const bounds = this.map ? this.map.getBounds() : null;
+        // Skip when the current view already sits inside the last fetched area.
+        if (!force && bounds && this.view_loaded_bounds && this.view_loaded_bounds.contains(bounds)) {
+            return;
+        }
+        this.loadMeta({ after_ms: 0, contacts_count: this.contact_view_count })
+            .then(() => this.enforceContactBudget())
+            .catch(() => {});
+    }
+
+    enforceContactBudget() {
+        const ids = Object.keys(this.contacts);
+        if (ids.length <= this.contact_max_loaded) return;
+        const bounds = this.map ? this.map.getBounds() : null;
+        // least-recently-loaded contacts outside the current view first
+        const outside = ids.filter(id => {
+            const c = this.contacts[id];
+            if (!c || !c.adv) return true;
+            const lat = c.adv.data.lat, lon = c.adv.data.lon;
+            if (!lat && !lon) return true;
+            return !(bounds && bounds.contains([lat, lon]));
+        }).sort((a, b) => (this.contacts[a]._load_seq || 0) - (this.contacts[b]._load_seq || 0));
+        let over = ids.length - this.contact_max_loaded;
+        for (const id of outside) {
+            if (over <= 0) break;
+            this.removeContact(id);
+            over--;
+        }
+    }
+
+    removeContact(id) {
+        const c = this.contacts[id];
+        if (!c) return;
+        if (c.marker && this.map && this.map.hasLayer(c.marker)) {
+            this.map.removeLayer(c.marker);
+        }
+        if (c.dom && c.dom.container && c.dom.container.parentNode) {
+            c.dom.container.parentNode.removeChild(c.dom.container);
+        }
+        delete this.contacts[id];
+    }
+
+    onContactFilterInput() {
         this.sortContacts();
+        const filter = String(Settings.get('contactFilter.value', '')).trim();
+        clearTimeout(this._contact_filter_timer);
+        this._contact_filter_timer = setTimeout(() => this.loadContactsForFilter(filter), 350);
+    }
+
+    loadContactsForFilter(filter) {
+        const isSpecial = this.isSpecialContactFilter(String(filter).trim().toLowerCase());
+        if (!filter || isSpecial) {
+            this.contact_search_active = false;   // back to the viewport
+            this.view_loaded_bounds = null;       // force a fresh viewport fetch
+            this.loadViewport(true);
+            return;
+        }
+        this.contact_search_active = true;
+        this.loadMeta({ after_ms: 0, contacts_count: this.contact_view_count, search: filter })
+            .catch(() => {});
     }
 
     updateMessagesDom() {

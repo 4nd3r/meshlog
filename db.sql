@@ -115,11 +115,17 @@ CREATE TABLE `contacts` (
   `enabled` tinyint(4) NOT NULL DEFAULT 1,
   `hash_size` tinyint(4) NOT NULL DEFAULT 1,
   `multibyte` tinyint(4) NOT NULL DEFAULT 0,
+  `lat` decimal(9,6) NOT NULL DEFAULT 0,
+  `lon` decimal(9,6) NOT NULL DEFAULT 0,
+  `type` tinyint(4) NOT NULL DEFAULT 0,
+  `adv_at` timestamp NULL DEFAULT NULL,
   `last_heard_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `contact_pub_key` (`public_key`),
-  KEY `last_heard_at_id` (`last_heard_at`,`id`)
+  KEY `last_heard_at_id` (`last_heard_at`,`id`),
+  KEY `lat_lon` (`lat`,`lon`),
+  KEY `type_last_heard` (`type`,`last_heard_at`)
 ) ENGINE=InnoDB AUTO_INCREMENT=544 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `direct_message_reports`;

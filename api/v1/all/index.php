@@ -126,6 +126,11 @@ if ($err) {
         'count' => $contactsCount,
         'after_ms' => getParam('after_ms', 0),
         'before_ms' => getParam('before_ms', 0),
+        'min_lat' => getParam('min_lat', null),
+        'max_lat' => getParam('max_lat', null),
+        'min_lon' => getParam('min_lon', null),
+        'max_lon' => getParam('max_lon', null),
+        'search'  => getParam('search', ''),
     );
 
     $reporters = array('objects' => array());
